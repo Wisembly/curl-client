@@ -280,6 +280,7 @@ class Client implements HttpClient, HttpAsyncClient
             if ($bodySize !== 0) {
                 // Message has non empty body.
                 if (null === $bodySize || $bodySize > 1024 * 1024) {
+
                     // Avoid full loading large or unknown size body into memory
                     $options[CURLOPT_UPLOAD] = true;
                     if (null !== $bodySize) {
@@ -288,9 +289,11 @@ class Client implements HttpClient, HttpAsyncClient
                     $options[CURLOPT_READFUNCTION] = function ($ch, $fd, $length) use ($body) {
                         return $body->read($length);
                     };
+                    $this->removeHeader($request, 'content-length');
                 } else {
                     // Small body can be loaded into memory
                     $options[CURLOPT_POSTFIELDS] = (string) $body;
+                    $this->removeHeader($request, 'content-length');
                 }
             }
         }
@@ -318,20 +321,16 @@ class Client implements HttpClient, HttpAsyncClient
     {
         $curlHeaders = [];
         $headers = array_keys($request->getHeaders());
+
         foreach ($headers as $name) {
             $header = strtolower($name);
             if ('expect' === $header) {
                 // curl-client does not support "Expect-Continue", so dropping "expect" headers
                 continue;
             }
-            if ('content-length' === $header) {
-                $values = [0];
-                if (array_key_exists(CURLOPT_POSTFIELDS, $options)) {
-                    $values = [strlen($options[CURLOPT_POSTFIELDS])];
-                }
-            } else {
-                $values = $request->getHeader($name);
-            }
+
+            $values = $request->getHeader($name);
+
             foreach ($values as $value) {
                 $curlHeaders[] = $name . ': ' . $value;
             }
@@ -362,5 +361,15 @@ class Client implements HttpClient, HttpAsyncClient
         $response = $this->messageFactory->createResponse(200, null, [], $body);
 
         return new ResponseBuilder($response);
+    }
+
+    private function removeHeader(RequestInterface &$request, $header)
+    {
+        $headers = $request->getHeaders();
+        foreach (array_keys($headers) as $key) {
+            if (0 !== strcasecmp($key, $header)) {
+                $request = $request->withHeader($key, $headers[$key]);
+            }
+        }
     }
 }
